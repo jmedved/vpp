@@ -4,6 +4,9 @@ contiv:
   tapInterfaceVersion: 2
   tapv2RxRingSize: 256
   tapv2TxRingSize: 256
+  vmxnet3RxRingSize: 1024
+  vmxnet3TxRingSize: 1024
+  interfaceRxMode: "polling"
   stealFirstNIC: False
   natExternalTraffic: True
   mtuSize: 1450
@@ -16,6 +19,7 @@ contiv:
   serviceLocalEndpointWeight: 1
   disableNATVirtualReassembly: False
   enablePacketTrace: False
+  routeServiceCIDRToVPP: False
   crdNodeConfigurationDisabled: True
   ipamConfig:
     podSubnetCIDR: 10.1.0.0/16
@@ -62,6 +66,9 @@ etcd:
   service:
     #NodePort where contiv-etcd can be reached on any node.
     nodePort: 32379
+  enableLivenessProbe: true
+  livenessProbeInitialDelaySeconds: 20
+  probePeriodSeconds: 3
   dataDir: /var/etcd
   usePersistentVolume: false
   persistentVolumeSize: 2Gi
@@ -81,6 +88,11 @@ etcd:
   updateStrategy: RollingUpdate
   cpuRequest: 100m
   cpuLimit: 0
+  cipherSuites:
+    - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+
 
 vswitch:
   image:
@@ -89,6 +101,11 @@ vswitch:
     #tag:
     pullPolicy: IfNotPresent
   enableLivenessReadinessProbes: true
+  readinessProbeInitialDelaySeconds: 15
+  livenessProbeInitialDelaySeconds: 60
+  probePeriodSeconds: 3
+  probeTimeoutSeconds: 2
+  probeFailureThreshold: 3
   defineMemoryLimits: false
   hugePages2miLimit: 1024Mi
   memoryLimit: 1024Mi
@@ -112,6 +129,14 @@ ksr:
     #tag:
     pullPolicy: IfNotPresent
   updateStrategy: RollingUpdate
+  enableLivenessReadinessProbes: true
+  readinessProbeInitialDelaySeconds: 10
+  livenessProbeInitialDelaySeconds: 30
+  probePeriodSeconds: 3
+  probeTimeoutSeconds: 2
+  probeFailureThreshold: 3
+  cpuRequest: 100m
+  cpuLimit: 0
 
 crd:
   image:
@@ -120,6 +145,15 @@ crd:
     #tag:
     pullPolicy: IfNotPresent
   updateStrategy: RollingUpdate
+  pollingInterval: 1 # in minutes, 0 to disable
+  enableLivenessReadinessProbes: true
+  readinessProbeInitialDelaySeconds: 10
+  livenessProbeInitialDelaySeconds: 30
+  probePeriodSeconds: 3
+  probeTimeoutSeconds: 2
+  probeFailureThreshold: 3
+  cpuRequest: 100m
+  cpuLimit: 0
 
 # GoVPP configuration
 # It contains time intervals used for VPP health probing (in nanoseconds).

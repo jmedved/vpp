@@ -66,6 +66,9 @@ Parameter | Description | Default
 `contiv.tapInterfaceVersion`| TAP interface version | 2
 `contiv.tapv2RxRingSize`| TAPv2 interface receive ring size | 256
 `contiv.tapv2TxRingSize`| TAPv2 interface transmit ring size | 256
+`contiv.vmxnet3RxRingSize`| Vmxnet3 interface receive ring size | 1024
+`contiv.vmxnet3TxRingSize`| Vmxnet3 interface transmit ring size | 1024
+`contiv.interfaceRxMode`| Interface packet receive mode: "" = polling / interrupt / adaptive  | `""`
 `contiv.stealInterface` | Enable Steal The NIC feature on the specified interface on each node | `""`
 `contiv.stealFirstNIC` | Enable Steal The NIC feature on the first interface on each node | `False`
 `contiv.natExternalTraffic`| NAT cluster-external traffic | `True`
@@ -111,6 +114,7 @@ Parameter | Description | Default
 `etcd.serverKey` | Name of the file with private key of the ETCD server. | `server-key.pem`
 `etcd.clientCert` | Name of the file with certificate of the ETCD client. | `client.pem`
 `etcd.clientKey` | Name of the file with private key of the ETCD client. | `client-key.pem`
+`etcd.cipherSuites` | Supported TLS cipher suite for ETCD | AES128 SHA256/384
 `govpp.healthCheckProbeInterval` | Health check proble interval (nanoseconds) | `1000000000`
 `govpp.healthCheckReplyTimeout` | Health check reply timeout (nanoseconds) | `500000000`
 `govpp.healthCheckThreshold` | Health check threshold | 3

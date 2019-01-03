@@ -19,8 +19,6 @@ package crd
 import (
 	"context"
 	"fmt"
-	"sync"
-
 	"github.com/contiv/vpp/plugins/crd/api"
 	"github.com/contiv/vpp/plugins/crd/cache"
 	"github.com/contiv/vpp/plugins/crd/controller/nodeconfig"
@@ -34,6 +32,10 @@ import (
 	"github.com/ligato/cn-infra/logging"
 	"github.com/ligato/cn-infra/utils/safeclose"
 	"github.com/namsral/flag"
+	"os"
+	"strconv"
+	"sync"
+	"time"
 
 	nodeinfomodel "github.com/contiv/vpp/plugins/contiv/model/node"
 	crdClientSet "github.com/contiv/vpp/plugins/crd/pkg/client/clientset/versioned"
@@ -115,7 +117,15 @@ func (p *Plugin) Init() error {
 		return fmt.Errorf("failed to build api Client: %s", err)
 	}
 
+	// Time interval for periodic report collection
+	collectionInterval := 1 * time.Minute
+	configuredInterval, err := strconv.Atoi(os.Getenv("CONTIV_CRD_INTERVAL"))
+	if err == nil {
+		collectionInterval = time.Duration(configuredInterval) * time.Minute
+	}
+
 	p.telemetryController = &telemetry.Controller{
+		CollectionInterval: collectionInterval,
 		Deps: telemetry.Deps{
 			Log: p.Log.NewLogger("-telemetryController"),
 		},
@@ -124,7 +134,7 @@ func (p *Plugin) Init() error {
 	}
 
 	// This where we initialize all layers
-	p.cache = cache.NewTelemetryCache(p.Log, *verbose)
+	p.cache = cache.NewTelemetryCache(p.Log, collectionInterval, *verbose)
 
 	p.cache.Init()
 

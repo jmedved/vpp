@@ -2,9 +2,9 @@
 
 ## contiv-netctl
 
-`contiv-netctl` is a is a command line interface for querying the status
-of Contiv-VPP vswitches in aK8s cluster that usea the using Contiv-VPP
-CNI plugin. This overview covers contv-netctl syntax, describes the
+`contiv-netctl` is a command line interface for querying the status
+of Contiv-VPP vswitches in a K8s cluster that is using Contiv-VPP
+CNI plugin. This overview covers contiv-netctl syntax, describes the
 available commands, and provides common examples. `contiv-netctl` is
 installed on the K8s-master host during the installation of the
 Contiv-VPP CNI plugin.
@@ -42,6 +42,30 @@ Operation | Syntax | Description
 `pods` | `contiv-netctl pods [NODE] [-h]` | Show pods and their respective vpp-side interfaces for specified `[NODE]`, or for all nodes if `[NODE]` not specified
 `vppcli` | `contiv-netctl vppcli NODE [vpp-dbg-cli-cmd] [-h]` | Execute the specified `[vpp-dbg-cli-cmd]` on the specified `NODE`
 `vppdump` |`contiv-netctl vppdump NODE [vpp-agent-resource] [-h]` | Get the specified `[vpp-agent-resource]` from VPP Agent on the specified `NODE`
+
+### Configuration
+
+Since contiv-netctl connects to vswitches via REST and uses Contiv-ETCD it requires corresponding
+config files. They can be defined using command line arguments `--etcd-config` and `--http-client-config`
+or environment variables `ETCD_CONFIG`, `HTTP_CLIENT_CONFIG`.
+
+etcd.conf
+```
+insecure-transport: true
+dial-timeout: 1000000000
+endpoints:
+ - "127.0.0.1:32379"
+```
+
+http.client.conf
+```
+port: 9999
+use-https: true
+basic-auth: "admin:pass"
+verify-server-cert: false
+```
+
+For more advanced etcd config [see example](https://github.com/ligato/cn-infra/blob/master/db/keyval/etcd/etcd.conf).
 
 ### Examples
 

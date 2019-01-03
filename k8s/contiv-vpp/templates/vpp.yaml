@@ -27,6 +27,15 @@ data:
     TAPv2RxRingSize: {{ .Values.contiv.tapv2RxRingSize }}
     TAPv2TxRingSize: {{ .Values.contiv.tapv2TxRingSize }}
     {{- end }}
+    {{- if ne (.Values.contiv.vmxnet3RxRingSize | int) 1024 }}
+    Vmxnet3RxRingSize: {{ .Values.contiv.vmxnet3RxRingSize }}
+    {{- end }}
+    {{- if ne (.Values.contiv.vmxnet3TxRingSize | int) 1024 }}
+    Vmxnet3TxRingSize: {{ .Values.contiv.vmxnet3TxRingSize }}
+    {{- end }}
+    {{- if ne .Values.contiv.interfaceRxMode "polling" }}
+    InterfaceRxMode: {{ .Values.contiv.interfaceRxMode }}
+    {{- end }}
     {{- if .Values.contiv.stealInterface }}
     StealInterface: {{ .Values.contiv.stealInterface }}
     {{- end }}
@@ -48,6 +57,7 @@ data:
     {{- end }}
     DisableNATVirtualReassembly: {{ .Values.contiv.disableNATVirtualReassembly }}
     EnablePacketTrace: {{ .Values.contiv.enablePacketTrace }}
+    RouteServiceCIDRToVPP: {{ .Values.contiv.routeServiceCIDRToVPP }}
     CRDNodeConfigurationDisabled: {{ .Values.contiv.crdNodeConfigurationDisabled }}
     IPAMConfig:
       NodeInterconnectDHCP: {{ .Values.contiv.ipamConfig.nodeInterconnectDHCP }}
@@ -104,6 +114,10 @@ data:
         level: info
       - name: vpp.if-state
         level: info
+      - name: linux.arp-conf
+        level: info
+      - name: vpp-rest
+        level: info
   grpc.conf: |
     network: unix
     endpoint: /var/run/contiv/cni.sock
@@ -157,6 +171,10 @@ data:
 # This installs the contiv-etcd (ETCD server to be used by Contiv) on the master node in a Kubernetes cluster.
 # In odrer to dump the content of ETCD, you can use the kubectl exec command similar to this:
 #   kubectl exec contiv-etcd-cxqhr -n kube-system etcdctl -- get --endpoints=[127.0.0.1:12379] --prefix="true" ""
+{{- define "utils.commaseparated" -}}
+{{- $local := dict "first" true -}}
+{{- range $k, $v := . -}}{{- if not $local.first -}},{{- end -}}{{- $v -}}{{- $_ := set $local "first" false -}}{{- end -}}
+{{- end }}
 apiVersion: apps/v1beta2
 kind: StatefulSet
 metadata:
@@ -230,6 +248,9 @@ spec:
               --peer-client-cert-auth --peer-trusted-ca-file=/var/contiv/etcd-secrets/{{ .Values.etcd.secrets.caCert }}
               --peer-cert-file=/var/contiv/etcd-secrets/{{ .Values.etcd.secrets.serverCert }} --peer-key-file=/var/contiv/etcd-secrets/{{ .Values.etcd.secrets.serverKey }}
               --advertise-client-urls=https://0.0.0.0:12379 --listen-client-urls=https://0.0.0.0:12379 --listen-peer-urls=https://0.0.0.0:12380
+              {{- if .Values.etcd.cipherSuites }}
+              --cipher-suites {{ include "utils.commaseparated" .Values.etcd.cipherSuites }}
+              {{- end }}
             {{- else }}
               --advertise-client-urls=http://0.0.0.0:12379 --listen-client-urls=http://0.0.0.0:12379 --listen-peer-urls=http://0.0.0.0:12380
             {{- end }}
@@ -241,14 +262,16 @@ spec:
               mountPath: /var/contiv/etcd-secrets
               readOnly: true
             {{- end }}
+          {{- if .Values.etcd.enableLivenessProbe }}
           livenessProbe:
             exec:
               command:
               - /bin/sh
               - -c
               - etcdctl get --endpoints=127.0.0.1:{{ .Values.etcd.service.nodePort }} /
-            periodSeconds: 2
-            initialDelaySeconds: 20
+            periodSeconds: {{ .Values.etcd.probePeriodSeconds }}
+            initialDelaySeconds: {{ .Values.etcd.livenessProbeInitialDelaySeconds }}
+          {{- end }}
           resources:
             {{- if .Values.etcd.cpuLimit }}
             limits:
@@ -511,7 +534,11 @@ spec:
           value: "32379"
         - name: ETCDCTL_API
           value: "3"
-        image: quay.io/coreos/etcd:v3.1.10
+        {{- if .Values.Arm64Platform }}
+        image: {{ .Values.etcd_arm64.image.repository }}:{{ .Values.etcd_arm64.image.tag }}
+        {{- else }}
+        image: {{ .Values.etcd.image.repository }}:{{ .Values.etcd.image.tag }}
+        {{- end }}
         command:
         - /bin/sh
         args:
@@ -619,10 +646,10 @@ spec:
                 - name: Authorization
                   value: "Basic {{ .Values.http.basicAuth | b64enc }}"
               {{- end }}
-            periodSeconds: 3
-            timeoutSeconds: 2
-            failureThreshold: 3
-            initialDelaySeconds: 15
+            periodSeconds: {{ .Values.vswitch.probePeriodSeconds }}
+            timeoutSeconds: {{ .Values.vswitch.probeTimeoutSeconds }}
+            failureThreshold: {{ .Values.vswitch.probeFailureThreshold }}
+            initialDelaySeconds: {{ .Values.vswitch.readinessProbeInitialDelaySeconds }}
           livenessProbe:
             httpGet:
               path: /liveness
@@ -635,10 +662,10 @@ spec:
                 - name: Authorization
                   value: "Basic {{ .Values.http.basicAuth | b64enc }}"
               {{- end }}
-            periodSeconds: 3
-            timeoutSeconds: 2
-            failureThreshold: 3
-            initialDelaySeconds: 60
+            periodSeconds: {{ .Values.vswitch.probePeriodSeconds }}
+            timeoutSeconds: {{ .Values.vswitch.probeTimeoutSeconds }}
+            failureThreshold: {{ .Values.vswitch.probeFailureThreshold }}
+            initialDelaySeconds: {{ .Values.vswitch.livenessProbeInitialDelaySeconds }}
           {{- end }}
           env:
             - name: MICROSERVICE_LABEL
@@ -676,6 +703,8 @@ spec:
               mountPath: /dev/shm
             - name: dev
               mountPath: /dev
+            - name: sys-bus-pci
+              mountPath: /sys/bus/pci
             - name: vpp-run
               mountPath: /run/vpp
             - name: contiv-run
@@ -684,6 +713,8 @@ spec:
               mountPath: /etc/agent
             - name: govpp-plugin-cfg
               mountPath: /etc/govpp
+            - name: tmp
+              mountPath: /tmp
             {{- if .Values.vswitch.enableCoreDumps }}
             - name: core-dumps
               mountPath: {{ .Values.vswitch.coreDumpsDir }}
@@ -773,6 +804,10 @@ spec:
         - name: shm
           hostPath:
             path: /dev/shm
+        # /sys/bus/pci is required for binding PCI devices to specific drivers
+        - name: sys-bus-pci
+          hostPath:
+            path: /sys/bus/pci
         # For CLI unix socket.
         - name: vpp-run
           hostPath:
@@ -795,6 +830,11 @@ spec:
           hostPath:
             path: {{ .Values.vswitch.coreDumpsDir }}
         {{- end }}
+        # /tmp in the vswitch container
+        - name: tmp
+          hostPath:
+            path: /tmp/contiv-vswitch
+        # persisted bolt data
         - name: var-bolt
           hostPath:
             path: {{ .Values.bolt.dataDir }}
@@ -877,6 +917,7 @@ spec:
               mountPath: /var/http
               readOnly: true
             {{- end }}
+          {{- if .Values.ksr.enableLivenessReadinessProbes }}
           readinessProbe:
             httpGet:
               path: /readiness
@@ -889,8 +930,10 @@ spec:
                 - name: Authorization
                   value: "Basic {{ .Values.http.basicAuth | b64enc }}"
               {{- end }}
-            periodSeconds: 1
-            initialDelaySeconds: 10
+            periodSeconds: {{ .Values.ksr.probePeriodSeconds }}
+            timeoutSeconds: {{ .Values.ksr.probeTimeoutSeconds }}
+            failureThreshold: {{ .Values.ksr.probeFailureThreshold }}
+            initialDelaySeconds: {{ .Values.ksr.readinessProbeInitialDelaySeconds }}
           livenessProbe:
             httpGet:
               path: /liveness
@@ -903,9 +946,20 @@ spec:
                 - name: Authorization
                   value: "Basic {{ .Values.http.basicAuth | b64enc }}"
               {{- end }}
-            periodSeconds: 1
-            initialDelaySeconds: 30
-
+            periodSeconds: {{ .Values.ksr.probePeriodSeconds }}
+            timeoutSeconds: {{ .Values.ksr.probeTimeoutSeconds }}
+            failureThreshold: {{ .Values.ksr.probeFailureThreshold }}
+            initialDelaySeconds: {{ .Values.ksr.livenessProbeInitialDelaySeconds }}
+          {{- end }}
+          resources:
+            {{- if .Values.ksr.cpuLimit }}
+            limits:
+              cpu: {{ .Values.ksr.cpuLimit }}
+            {{- end }}
+            {{- if .Values.ksr.cpuRequest }}
+            requests:
+              cpu: {{ .Values.ksr.cpuRequest }}
+            {{- end }}
       volumes:
         # Used to connect to contiv-etcd.
         - name: etcd-cfg
@@ -1086,6 +1140,8 @@ spec:
           value: "/etc/http/http.conf"
         - name: HTTP_CLIENT_CONFIG
           value: "/etc/http/http.client.conf"
+        - name: CONTIV_CRD_INTERVAL
+          value: {{ .Values.crd.pollingInterval | quote }}
         volumeMounts:
         - name: etcd-cfg
           mountPath: /etc/etcd
@@ -1101,6 +1157,7 @@ spec:
           mountPath: /var/http
           readOnly: true
         {{- end }}
+        {{- if .Values.crd.enableLivenessReadinessProbes }}
         readinessProbe:
           httpGet:
             path: /readiness
@@ -1113,8 +1170,10 @@ spec:
               - name: Authorization
                 value: "Basic {{ .Values.http.basicAuth | b64enc }}"
             {{- end }}
-          periodSeconds: 1
-          initialDelaySeconds: 10
+          periodSeconds: {{ .Values.crd.probePeriodSeconds }}
+          timeoutSeconds: {{ .Values.crd.probeTimeoutSeconds }}
+          failureThreshold: {{ .Values.crd.probeFailureThreshold }}
+          initialDelaySeconds: {{ .Values.crd.readinessProbeInitialDelaySeconds }}
         livenessProbe:
           httpGet:
             path: /liveness
@@ -1127,8 +1186,20 @@ spec:
               - name: Authorization
                 value: "Basic {{ .Values.http.basicAuth | b64enc }}"
             {{- end }}
-          periodSeconds: 1
-          initialDelaySeconds: 30
+          periodSeconds: {{ .Values.crd.probePeriodSeconds }}
+          timeoutSeconds: {{ .Values.crd.probeTimeoutSeconds }}
+          failureThreshold: {{ .Values.crd.probeFailureThreshold }}
+          initialDelaySeconds: {{ .Values.crd.livenessProbeInitialDelaySeconds }}
+        {{- end }}
+        resources:
+          {{- if .Values.crd.cpuLimit }}
+          limits:
+            cpu: {{ .Values.crd.cpuLimit }}
+          {{- end }}
+          {{- if .Values.crd.cpuRequest }}
+          requests:
+            cpu: {{ .Values.crd.cpuRequest }}
+          {{- end }}
       volumes:
         # Used to connect to contiv-etcd.
         - name: etcd-cfg

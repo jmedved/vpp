@@ -38,6 +38,7 @@ data:
     ServiceLocalEndpointWeight: 1
     DisableNATVirtualReassembly: false
     EnablePacketTrace: false
+    RouteServiceCIDRToVPP: false
     CRDNodeConfigurationDisabled: true
     IPAMConfig:
       NodeInterconnectDHCP: false
@@ -54,6 +55,10 @@ data:
       - name: statscollector
         level: info
       - name: vpp.if-state
+        level: info
+      - name: linux.arp-conf
+        level: info
+      - name: vpp-rest
         level: info
   grpc.conf: |
     network: unix
@@ -161,7 +166,7 @@ spec:
               - /bin/sh
               - -c
               - etcdctl get --endpoints=127.0.0.1:32379 /
-            periodSeconds: 2
+            periodSeconds: 3
             initialDelaySeconds: 20
           resources:
             requests:
@@ -386,6 +391,8 @@ spec:
               mountPath: /dev/shm
             - name: dev
               mountPath: /dev
+            - name: sys-bus-pci
+              mountPath: /sys/bus/pci
             - name: vpp-run
               mountPath: /run/vpp
             - name: contiv-run
@@ -394,6 +401,8 @@ spec:
               mountPath: /etc/agent
             - name: govpp-plugin-cfg
               mountPath: /etc/govpp
+            - name: tmp
+              mountPath: /tmp
             - name: core-dumps
               mountPath: /var/contiv/dumps
           resources:
@@ -431,6 +440,10 @@ spec:
         - name: shm
           hostPath:
             path: /dev/shm
+        # /sys/bus/pci is required for binding PCI devices to specific drivers
+        - name: sys-bus-pci
+          hostPath:
+            path: /sys/bus/pci
         # For CLI unix socket.
         - name: vpp-run
           hostPath:
@@ -451,6 +464,11 @@ spec:
         - name: core-dumps
           hostPath:
             path: /var/contiv/dumps
+        # /tmp in the vswitch container
+        - name: tmp
+          hostPath:
+            path: /tmp/contiv-vswitch
+        # persisted bolt data
         - name: var-bolt
           hostPath:
             path: /var/bolt
@@ -519,15 +537,21 @@ spec:
             httpGet:
               path: /readiness
               port: 9191
-            periodSeconds: 1
+            periodSeconds: 3
+            timeoutSeconds: 2
+            failureThreshold: 3
             initialDelaySeconds: 10
           livenessProbe:
             httpGet:
               path: /liveness
               port: 9191
-            periodSeconds: 1
+            periodSeconds: 3
+            timeoutSeconds: 2
+            failureThreshold: 3
             initialDelaySeconds: 30
-
+          resources:
+            requests:
+              cpu: 100m
       volumes:
         # Used to connect to contiv-etcd.
         - name: etcd-cfg
@@ -664,6 +688,8 @@ spec:
           value: "/etc/http/http.conf"
         - name: HTTP_CLIENT_CONFIG
           value: "/etc/http/http.client.conf"
+        - name: CONTIV_CRD_INTERVAL
+          value: "1"
         volumeMounts:
         - name: etcd-cfg
           mountPath: /etc/etcd
@@ -673,14 +699,21 @@ spec:
           httpGet:
             path: /readiness
             port: 9090
-          periodSeconds: 1
+          periodSeconds: 3
+          timeoutSeconds: 2
+          failureThreshold: 3
           initialDelaySeconds: 10
         livenessProbe:
           httpGet:
             path: /liveness
             port: 9090
-          periodSeconds: 1
+          periodSeconds: 3
+          timeoutSeconds: 2
+          failureThreshold: 3
           initialDelaySeconds: 30
+        resources:
+          requests:
+            cpu: 100m
       volumes:
         # Used to connect to contiv-etcd.
         - name: etcd-cfg
